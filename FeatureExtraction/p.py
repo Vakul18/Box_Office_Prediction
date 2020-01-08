@@ -6,11 +6,7 @@ import numpy as np
 from multiprocessing import Process, Manager
 import os
 from itertools import repeat
-
-dir = os.path.dirname(__file__)
-filename = os.path.join(dir, 'train.csv')
-
-dataFrameTrain = pd.read_csv(filename)
+import time
 
 def FindIdInColumn(column,fieldName,returnList):
     for i in range(0,len(column)):
@@ -38,6 +34,9 @@ def AddValueToCollectionColumn(i,value):
     dataFrameTrain.at[i,'belongs_to_collection'] = value
 
 if __name__ == '__main__': 
+	dir = os.path.dirname(__file__)
+	filename = os.path.join(dir, 'train.csv')
+	dataFrameTrain = pd.read_csv(filename)
 	manager = Manager()
 	dictList = []
 	p1List = manager.list()
@@ -64,8 +63,6 @@ if __name__ == '__main__':
 	processList.append(p3)
 	p4 = Process(target=FindIdInColumn,args=(dataFrameTrain['Keywords'],'\'id\'',p4List))
 	processList.append(p4)
-	p5 = Process(target=FindIdInColumn,args=(dataFrameTrain['Keywords'],'\'id\'',p5List))
-	processList.append(p5)
 	p6 = Process(target=FindIdInColumn,args=(dataFrameTrain['cast'],'\'id\'',p6List))
 	processList.append(p6)
 	p7 = Process(target=FindIdInColumn,args=(dataFrameTrain['crew'],'\'id\'',p7List))
@@ -89,6 +86,7 @@ if __name__ == '__main__':
 				l[t[0]] = 1
 				d[t[1]] = l
 	df1 = pd.DataFrame.from_dict(d)
+	print('df1.Shape - ' + str(df1.shape[0]) + ' , ' + str(df1.shape[1]))
 	dataFrameTrain = dataFrameTrain.join(df1,how='left')
 	print('checkpoint 1')
 	for t in p8List:
@@ -111,4 +109,9 @@ if __name__ == '__main__':
 		dataFrameTrain.at[i,'day'] = date.day
 		dataFrameTrain.at[i,'month'] = date.month
 		dataFrameTrain.at[i,'year'] = date.year
-	dataFrameTrain.to_excel('E:\\finalMovieDatabse.xlsx')
+	dataFrameTrain.drop(['genres','production_companies','production_countries','Keywords','cast','crew'],axis=1)
+	print('dataFrameTrain.Shape - ' + str(dataFrameTrain.shape[0]) + ' , ' + str(dataFrameTrain	.shape[1]))
+	dataFrameTrain.to_csv('E:\\finalMovieDatabse.csv')
+	df2 = pd.read_csv("E:\\finalMovieDatabse.csv")
+	print('df2.Shape - ' + str(df2.shape[0]) + ' , ' + str(df2.shape[1]))
+	df2.head(5)

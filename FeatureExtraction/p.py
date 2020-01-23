@@ -7,7 +7,8 @@ from multiprocessing import Process, Manager
 import os
 from itertools import repeat
 import time
-
+from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import OneHotEncoder
 
 def FindIdInColumn(colName, column, fieldName, returnList, appendColName=True):
     for i in range(0, len(column)):
@@ -31,20 +32,16 @@ def FindIdInColumn(colName, column, fieldName, returnList, appendColName=True):
             idIndex = collectionJson.find(fieldName, idIndex, len(collectionJson))
     return returnList
 
+def day_of_week(strDate):
+	date = datetime.strptime(strDate, '%m/%d/%y')
+	year = date.year
+	month = date.month
+	day = date.day
+	t = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4]
+	year -= month < 3
+	return (year + int(year/4) - int(year/100) + int(year/400) + t[month-1] + day) % 7
 
-def CreateOrAddValueToCol(i, colName):
-    dataFrameTrain.at[i, colName] = 1
-
-
-def AddValueToCollectionColumn(i, value):
-    dataFrameTrain.at[i, 'belongs_to_collection'] = value
-
-
-if __name__ == '__main__':
-	dir = os.path.dirname(__file__)
-	filename = os.path.join(dir, 'train.csv')
-	dataFrameTrain = pd.read_csv(filename)
-	#dataFrameTrain = dataFrameTrain[:5]
+def ProcessCategoryColumns(dataFrameTrain):
 	manager = Manager()
 	dictList = []
 	p1List = manager.list()
@@ -94,34 +91,64 @@ if __name__ == '__main__':
 				l[t[0]] = 1
 				d[t[1]] = l
 	df1 = pd.DataFrame.from_dict(d)
-	print('df1.Shape - ' + str(df1.shape[0]) + ' , ' + str(df1.shape[1]))
 	dataFrameTrain = dataFrameTrain.join(df1, how='left')
-	print('checkpoint 1')
 	for t in p8List:
-		AddValueToCollectionColumn(t[0], t[1])
-	print('checkpoint 2')
-	budgetCollection = dataFrameTrain.budget
-	for i in range(0, len(budgetCollection)):
-		budget = budgetCollection[i]
-		if(budget == 0):
-			dataFrameTrain.loc[i, 'budget'] = np.nan
+		dataFrameTrain.at[t[0], 'belongs_to_collection'] = t[1]
+	return dataFrameTrain
 
-	dict = {language: id for id, language in enumerate(
-	    set(dataFrameTrain.original_language))}
-	dataFrameTrain.original_language = [dict[language]
-                                     for language in dataFrameTrain.original_language]
+def OneHotEncodeColumns(dataFrameTrain):
+	XreleaseDateCol = dataFrameTrain['release_date'].apply(day_of_week)
+	oneHotEncoderReleaseDate = OneHotEncoder()
+	XoneEncodedValuesReleasDate = oneHotEncoderReleaseDate.fit_transform(np.asarray(XreleaseDateCol).reshape(-1,1)).toarray()
+	
+	label_encoderBelongs = LabelEncoder()
+	dataFrameTrain['belongs_to_collection'] = dataFrameTrain['belongs_to_collection'].fillna(0,inplace = True)
+	dataFrameTrain['belongs_to_collection'] = label_encoderBelongs.fit_transform(dataFrameTrain['belongs_to_collection'])
+	oneHotEncoderBelongs = OneHotEncoder()
+	XoneEncodedValuesBelongs = oneHotEncoderBelongs.fit_transform(np.asarray(dataFrameTrain['belongs_to_collection']).reshape(-1,1)).toarray()
+	
+	oneHotEncoderLang = OneHotEncoder()
+	label_encoderLang = LabelEncoder()
+	dataFrameTrain['original_language'] =label_encoderLang.fit_transform(dataFrameTrain['original_language'])
+	XoneHotEncodedLang = oneHotEncoderLang.fit_transform(np.asarray(dataFrameTrain['original_language']).reshape(-1,1)).toarray()
+	
+	return dataFrameTrain,oneHotEncoderReleaseDate,XoneEncodedValuesReleasDate,label_encoderBelongs,oneHotEncoderBelongs,XoneEncodedValuesBelongs,label_encoderLang,oneHotEncoderLang,XoneHotEncodedLang
 
+def ExtractFeatures(dataFrameTrain):
+	dataFrameTrain = ProcessCategoryColumns(dataFrameTrain)
+	
 	releaseDateCol = dataFrameTrain['release_date']
-
 	for i in range(0, len(releaseDateCol)):
 		strDate = releaseDateCol[i]
 		date = datetime.strptime(strDate, '%m/%d/%y')
 		dataFrameTrain.at[i, 'day'] = date.day
 		dataFrameTrain.at[i, 'month'] = date.month
 		dataFrameTrain.at[i, 'year'] = date.year
-	dataFrameTrain.drop(['genres','production_companies','production_countries','Keywords','cast','crew','homepage','imdb_id','original_title','overview','poster_path','release_date','spoken_languages','status','tagline','title'],axis=1)
-	print('dataFrameTrain.Shape - ' +
-	      str(dataFrameTrain.shape[0]) + ' , ' + str(dataFrameTrain	.shape[1]))
-	dataFrameTrain.to_excel('E:\\finalMovieDatabse.xlsx')
+	
+	dataFrameTrain,oneHotEncoderReleaseDate,XoneEncodedValuesReleasDate,label_encoderBelongs,oneHotEncoderBelongs,XoneEncodedValuesBelongs,label_encoderLang,oneHotEncoderLang,XoneHotEncodedLang = OneHotEncodeColumns(dataFrameTrain)
+	
+	budgetCollection = dataFrameTrain.budget
+	for i in range(0, len(budgetCollection)):
+		budget = budgetCollection[i]
+		if(budget == 0):
+			dataFrameTrain.loc[i, 'budget'] = np.nan
+
+	
+	dataFrameTrain = dataFrameTrain.drop(['original_language','id','genres','production_companies','production_countries','Keywords','belongs_to_collection','cast','crew','homepage','imdb_id','original_title','overview','poster_path','release_date','spoken_languages','status','tagline','title','revenue'],axis=1)
+	XTrain = np.concatenate((dataFrameTrain.to_numpy(),XoneEncodedValuesBelongs, XoneEncodedValuesReleasDate,XoneHotEncodedLang),axis = 1)
+	return oneHotEncoderReleaseDate,label_encoderBelongs,oneHotEncoderBelongs,label_encoderLang,oneHotEncoderLang,XTrain
+
+if __name__ == '__main__':
+	dir = os.path.dirname(__file__)
+	filename = os.path.join(dir, 'train.csv')
+	dataFrameTrain = pd.read_csv(filename)
+	
+	oneHotEncoderReleaseDate,label_encoderBelongs,oneHotEncoderBelongs,label_encoderLang,oneHotEncoderLang,XTrain = ExtractFeatures(dataFrameTrain)
+
+	YTrain =  dataFrameTrain['revenue'].to_numpy()
+
+	print(XTrain.shape)
+	print(YTrain.shape)
+	#dataFrameTrain.to_csv('E:\\finalMovieDatabse.csv')
 	#df2 = pd.read_csv("E:\\finalMovieDatabse.csv")
 	#print('df2.Shape - ' + str(df2.shape[0]) + ' , ' + str(df2.shape[1]))

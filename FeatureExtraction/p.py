@@ -18,6 +18,9 @@ from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from sklearn.impute import KNNImputer
 from sklearn.decomposition import PCA
+from sklearn.svm import SVR
+from sklearn.metrics import make_scorer
+from sklearn.metrics import r2_score
 
 
 
@@ -131,15 +134,33 @@ def ProcessCategoryColumns(dataFrame):
 		dataFrame.at[t[0], 'belongs_to_collection'] = t[1]
 	
 	
-	dataFrame,pcaProd = ReduceColumns(p2List, dfRowCount, dataFrame,0.5,'Prod')
+	dataFrame,pcaProd = ReduceColumns(p2List, dfRowCount, dataFrame,0.95,'Prod')
 	
-	dataFrame,pcaCast = ReduceColumns(p6List, dfRowCount, dataFrame,0.5,'Cast')
+	dataFrame,pcaCast = ReduceColumns(p6List, dfRowCount, dataFrame,0.95,'Cast')
 
-	dataFrame,pcaKeyword = ReduceColumns(p4List, dfRowCount, dataFrame,0.5,'Keyword')
+	dataFrame,pcaKeyword = ReduceColumns(p4List, dfRowCount, dataFrame,0.95,'Keyword')
 
-	dataFrame,pcaCrew = ReduceColumns(p7List, dfRowCount, dataFrame,0.5,'Crew')
+	dataFrame,pcaCrew = ReduceColumns(p7List, dfRowCount, dataFrame,0.95,'Crew')
 
 	return dataFrame
+
+def CustomScorer(y,yPred):
+	#print('enter custom scorer')
+	#print('ypred : ')
+	#print(yPred[:10])
+	#print('\ny : ')
+	#print(y[:10])
+	diff = np.subtract(yPred,y)
+	#print('\ndiff : ')
+	#print(diff[:10])
+	div = np.divide(diff,y)
+	#print('\ndiv : ')
+	#print(div[:10])
+	perc = div*100
+	#print('\nperc : ')
+	#print(perc[:10])
+	#print('=================' + str(np.mean(perc)) + '==========================')
+	return np.mean(perc)
 
 def ReduceColumns(processList, dfRowCount, dataFrame,variance,name):
     
@@ -253,24 +274,40 @@ if __name__ == '__main__':
 	XTrain = ExtractFeatures(dataFrameTrain,oneHotEncoderReleaseDate,label_encoderBelongs,oneHotEncoderBelongs,oneHotEncoderLang,label_encoderLang)
 	YTrain =  dataFrameTrain['revenue'].to_numpy()
 	
-	print(XTrain.shape)
-	print(YTrain.shape)
+
 	print('start imputing')
 	imputer = KNNImputer(n_neighbors=5)
 	XTrain = imputer.fit_transform(XTrain)
 	print('finish imputing')
+	print(XTrain.shape)
+	print(YTrain.shape)
 	df12 = pd.DataFrame (XTrain)
 	#df12.to_excel('E:\\n.xlsx')
-	degrees = [2,3,4,5,8]
+	c = [0.1,0.5,2,3]
+	for i in range(0,len(c)):
+		print('start regression for C' + str(c[i]))
+		clf = SVR(kernel='poly',degree = 8,C=c[i])
+	
+		scoring = make_scorer(CustomScorer,greater_is_better=False)
+		
+		score = cross_val_score(clf,XTrain,YTrain,n_jobs=4,cv=4,scoring=scoring)
+		
+		print("Accuracy: %0.2f (+/- %0.2f) for c = %d" % (score.mean(), score.std() * 2,c[i]))
+		print(score)
+
+
+	degrees = [2,4,8,10,12,14,16]
 	for i in range(0,len(degrees)):
 		print('start regression for degree' + str(degrees[i]))
-		polyFeature = PolynomialFeatures(degree=degrees[i])
-		linearRegression = LinearRegression()
-		#scoring = 'r2'
-		pipeline = Pipeline([('polyFeature',polyFeature),('linearRegression',linearRegression)])
-		score = cross_val_score(pipeline,XTrain,YTrain,n_jobs=4,cv=5)
+		clf = SVR(kernel='poly',degree = degrees[i])
+		#polyFeature = PolynomialFeatures(degree=degrees[i])
+		#linearRegression = LinearRegression()
+		#scoring = make_scorer(CustomScorer,greater_is_better=False)
+		#pipeline = Pipeline([('polyFeature',polyFeature),('linearRegression',linearRegression)]) neg_root_mean_squared_error
+		score = cross_val_score(clf,XTrain,YTrain,n_jobs=4,cv=4,scoring='r2')
 		#print('score for degree = ' + str(degrees[i])+ " is " + str(score))
 		print("Accuracy: %0.2f (+/- %0.2f) for degree = %d" % (score.mean(), score.std() * 2,degrees[i]))
+		print(score)
 
 
 	#print(XTrain)
